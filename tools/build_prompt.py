@@ -47,8 +47,10 @@ def build(proj: Path, sid: str):
         refs.append("音频只用来确定嗓音，绝对不要说出任何音频里的内容")
     lines.append("参考素材：" + "；".join(refs) + "。")
 
-    state = shot.get("start_state_actual") or shot.get("start_state")
+    state = (shot.get("start_state_actual") or shot.get("start_state") or "").strip()
     if state:
+        if state[-1] not in "。；！？.;!?":
+            state += "。"
         lines.append("当前状态：" + state + "全程保持这些状态，除非分镜里写明变化。")
 
     t = 0.0

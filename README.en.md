@@ -64,7 +64,7 @@ Claude runs `tools/new_project.py` to create `projects/demo/`. It then goes thro
 7. after each shot: the video, the QA results and the actual end state
 8. final assembly
 
-At each gate, reply "approve", or "reject" and say what to change. Every decision is recorded in `projects/<name>/workflow.json`, and every cost in `ledger.json`.
+At each gate, reply "approve", or "reject" and say what to change. Gates must pass in order. A re-roll shows you the prompt and the cost again, and spends nothing until you approve again. Every decision is recorded in `projects/<name>/workflow.json`, and every cost in `ledger.json`.
 
 **Where the output goes**:
 - the finished film: `projects/<name>/exports/`;
@@ -73,6 +73,7 @@ At each gate, reply "approve", or "reject" and say what to change. Every decisio
 
 ## 4. Resuming, and several projects at once
 - **Resume**: all progress is saved in the project folder, so you can close Claude Code and come back later. Open it again and say "continue demo, which gate are we at?".
+- **Connection lost during generation**: a submitted task is already in the ledger. Say "continue" and Claude fetches that video; you are not billed twice.
 - **Several projects at once**: each project keeps its own gates, clips, budget and ledger, so projects never overwrite each other.
   - To run in parallel, open two terminals and run `claude` in each. Say "work on demo1" in one and "work on demo2" in the other.
   - To work in one window, switch by name: "switch to demo2".
@@ -98,7 +99,8 @@ Use `none` for the first shot and for scene changes; those shots are generated i
   - the model outputs 13 s, because the first 4 s re-film the hand-over and are trimmed at assembly;
   - the 4 s reference video you send is billed as input;
   - so the total billed is about 17 s. The example's S6 measured 16.97 s.
-- **Measured**: the example story 《修表铺》 produced a 72-second film for about 215 billed Wan seconds, including re-rolls and debugging.
+- **Measured**: the example story 《修表铺》 produced a 72-second film. The ledger shows about 215 billed Wan seconds, including re-rolls and debugging. One more re-roll was not recorded at the time, so the real total is an estimated 236 seconds.
+- Every re-roll keeps the earlier takes (`clips/S3_take1.mp4`, `S3_take2.mp4`, …), so you can go back to any of them.
 - Before each shot you see the estimated billed seconds, and nothing runs until you approve. Generation stops automatically when the project budget is reached. Prices depend on your Alibaba Cloud account.
 
 ## 7. Layout
@@ -110,7 +112,8 @@ tools/lt.py           low level: images, video (Wan / MiniMax H3 / Grok), tail c
 tools/build_prompt.py builds the Wan prompt (official formula) from story.json
 tools/run_shot.py     per shot: --plan (await approval) → generate → QA → await review → --accept (record end state)
 tools/gate.py         human approval gates
-tools/assemble.py     final assembly (--crop-subs crops burned-in subtitles at the bottom)
+tools/assemble.py     final assembly (output size follows the footage; --crop-subs crops burned-in subtitles)
+tests/                free self-check: python3 tests/test_workflow.py (full flow against a fake video API)
 examples/             example story and story.json
 projects/             your projects (not shared with the code)
 ```

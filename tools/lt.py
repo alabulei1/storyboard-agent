@@ -4,12 +4,17 @@
   lt.py video     --out s1.mp4 --prompt-file p.txt --model h3|grok15
                   [--first-frame f.jpg] [--ref-video tail.mp4] [--ref-image a.png ...]
                   [--duration 10] [--resolution 720p]
+  lt.py wan       --out s1.mp4 --prompt-file p.txt [--first-frame f.png | --ref-video tail.mp4]
+                  [--ref-image a.png ...] [--ref-audio v.mp3 ...] [--duration 10]
+  lt.py wan       --out s1.mp4 --resume <task_id>           (fetch a task that was already submitted and paid for)
   lt.py tail      --in s1.mp4 --sec 4 --out s1_tail.mp4     (continuation anchor for video extension)
-  lt.py lastframe --in s1.mp4 --out s1_last.jpg             (continuation anchor for last-frame mode)
+  lt.py lastframe --in s1.mp4 --out s1_last.png             (continuation anchor for last-frame mode)
   lt.py concat    --out final.mp4 clip1.mp4 clip2.mp4 ...   (16:9 1280x720, keeps audio)
   lt.py probe     --in s1.mp4
 
-Token Station key is read from ~/oss-test/OpenMontage/.env (TOKEN_STATION_API_KEY); never printed.
+Keys are read from <repo>/.env (see .env.example); never printed.
+`wan` exits with code 75 when a submitted task could not be fetched (network trouble, still running):
+the task is paid for, so fetch it with --resume instead of submitting again.
 """
 import argparse
 import base64
@@ -28,6 +33,7 @@ MODELS = {"h3": "minimax/MiniMax-H3", "grok15": "xai/grok-imagine-video-1.5"}
 
 
 ROOT = Path(__file__).resolve().parent.parent
+RESUMABLE = 75  # exit code: the task was submitted (and is billed) but its result was not fetched
 
 
 def env():
@@ -90,7 +96,21 @@ def save_item(item, out):
         urllib.request.urlretrieve(item["url"], out)
 
 
+def project_of(path):
+    """The project folder (<repo>/projects/<name>) a file belongs to, or None."""
+    try:
+        rel = Path(path).resolve().relative_to(ROOT / "projects")
+    except ValueError:
+        return None
+    return ROOT / "projects" / rel.parts[0] if len(rel.parts) > 1 else None
+
+
 def cmd_image(a):
+    proj = project_of(a.out)
+    if proj and (proj / "workflow.json").exists():  # anchor images cost money: the anchor plan must be approved first
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import gate
+        gate.require(str(proj), "anchors_plan")
     prompt = Path(a.prompt_file).read_text()
     t = time.time()
     if a.ref:
@@ -135,6 +155,10 @@ def wan_env():
     return host, e["WAN_API_KEY"]
 
 
+class Transient(Exception):
+    """A network or server hiccup: the request may be retried."""
+
+
 def wan_call(method, url, key_, body=None):
     headers = {"Authorization": f"Bearer {key_}", "Content-Type": "application/json"}
     if body is not None:
@@ -144,11 +168,62 @@ def wan_call(method, url, key_, body=None):
         with urllib.request.urlopen(req, timeout=120) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        sys.exit(f"HTTP {e.code}: {e.read().decode()[:600]}")
+        msg = f"HTTP {e.code}: {e.read().decode()[:600]}"
+        if method == "GET" and (e.code == 429 or e.code >= 500):
+            raise Transient(msg)
+        sys.exit(msg)
+    except (urllib.error.URLError, OSError, ValueError) as e:  # connection reset, timeout, truncated body
+        if method == "GET":
+            raise Transient(str(e))
+        sys.exit(f"network error: {e}")  # submissions are never retried automatically (could bill twice)
+
+
+def wan_give_up(tid, why):
+    print(f"Wan task {tid} was submitted but not fetched ({why}). It is billed; fetch it with: "
+          f"lt.py wan --resume {tid} --out <file>", file=sys.stderr)
+    sys.exit(RESUMABLE)
 
 
 def cmd_wan(a):
     host, key_ = wan_env()
+    e = env()
+    interval, max_fail, max_wait = float(e.get("WAN_POLL_SECONDS", 15)), int(e.get("WAN_POLL_RETRIES", 20)), float(e.get("WAN_MAX_WAIT", 3600))
+    t = time.time()
+    tid = a.resume or wan_submit(a, host, key_)
+    print(json.dumps({"task_id": tid}), flush=True)
+    fails = 0
+    while True:
+        time.sleep(interval)
+        try:
+            st = wan_call("GET", f"{host}/api/v1/tasks/{tid}", key_)
+            fails = 0
+        except Transient as err:
+            fails += 1
+            if fails >= max_fail:
+                wan_give_up(tid, f"{fails} failed status checks, last: {err}")
+            continue
+        status = st["output"].get("task_status")
+        if status == "SUCCEEDED":
+            for attempt in range(3):
+                try:
+                    urllib.request.urlretrieve(st["output"]["video_url"], a.out)
+                    break
+                except (urllib.error.URLError, OSError) as err:
+                    if attempt == 2:
+                        wan_give_up(tid, f"download failed: {err}")
+                    time.sleep(5)
+            print(json.dumps({"out": a.out, "model": a.wan_model, "seconds": round(time.time() - t), "task_id": tid,
+                              "usage": st.get("usage"), **probe(a.out)}))
+            return
+        if status in ("FAILED", "CANCELED", "UNKNOWN"):
+            sys.exit("Wan task " + status + ": " + json.dumps(st["output"], ensure_ascii=False)[:600])
+        if time.time() - t > max_wait:
+            wan_give_up(tid, f"still {status} after {max_wait:g} s")
+
+
+def wan_submit(a, host, key_):
+    if not a.prompt_file:
+        sys.exit("--prompt-file is required (or --resume <task_id>)")
     media = []
     if a.first_frame:
         media.append({"type": "first_frame", "url": data_uri(a.first_frame)})
@@ -165,21 +240,8 @@ def cmd_wan(a):
         body["input"]["media"] = media
     if a.negative:
         body["input"]["negative_prompt"] = a.negative
-    t = time.time()
     task = wan_call("POST", f"{host}/api/v1/services/aigc/video-generation/video-synthesis", key_, body)
-    tid = task["output"]["task_id"]
-    print(json.dumps({"task_id": tid}), flush=True)
-    while True:
-        time.sleep(15)
-        st = wan_call("GET", f"{host}/api/v1/tasks/{tid}", key_)
-        status = st["output"].get("task_status")
-        if status == "SUCCEEDED":
-            urllib.request.urlretrieve(st["output"]["video_url"], a.out)
-            print(json.dumps({"out": a.out, "model": a.wan_model, "seconds": round(time.time() - t),
-                              "usage": st.get("usage"), **probe(a.out)}))
-            return
-        if status in ("FAILED", "CANCELED", "UNKNOWN"):
-            sys.exit("Wan task " + status + ": " + json.dumps(st["output"], ensure_ascii=False)[:600])
+    return task["output"]["task_id"]
 
 
 def ff(*args):
@@ -229,7 +291,7 @@ def cmd_concat(a):
     print(json.dumps({"out": a.out, **probe(a.out)}))
 
 
-if __name__ == "__main__":
+def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("image"); s.add_argument("--out", required=True); s.add_argument("--prompt-file", required=True)
@@ -239,7 +301,8 @@ if __name__ == "__main__":
     s.add_argument("--ref-video", nargs="*"); s.add_argument("--ref-image", nargs="*")
     s.add_argument("--duration", type=int, default=10); s.add_argument("--resolution", default="720p")
     s.add_argument("--aspect", help="override aspect_ratio, e.g. 16:9 or adaptive"); s.set_defaults(fn=cmd_video)
-    s = sub.add_parser("wan"); s.add_argument("--out", required=True); s.add_argument("--prompt-file", required=True)
+    s = sub.add_parser("wan"); s.add_argument("--out", required=True); s.add_argument("--prompt-file")
+    s.add_argument("--resume", metavar="TASK_ID", help="fetch an already submitted task instead of submitting a new one")
     s.add_argument("--wan-model", default="wan3.0-video"); s.add_argument("--first-frame"); s.add_argument("--ref-video", nargs="*")
     s.add_argument("--ref-image", nargs="*"); s.add_argument("--ref-audio", nargs="*"); s.add_argument("--duration", type=int, default=10)
     s.add_argument("--resolution", default="720P"); s.add_argument("--aspect"); s.add_argument("--negative")
@@ -253,3 +316,7 @@ if __name__ == "__main__":
     s = sub.add_parser("probe"); s.add_argument("--in", dest="inp", required=True); s.set_defaults(fn=lambda a: print(json.dumps(probe(a.inp))))
     args = p.parse_args()
     args.fn(args)
+
+
+if __name__ == "__main__":
+    main()

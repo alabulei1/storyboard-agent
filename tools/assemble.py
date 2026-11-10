@@ -26,6 +26,12 @@ if a.upto:
     shots = [s for s in shots if ids.index(s["id"]) <= ids.index(a.upto)]
 ov = story.get("continuation_seconds", 4)
 crop = "crop=iw*0.83:ih*0.83:iw*0.085:0," if a.crop_subs else ""
+if not shots:
+    sys.exit("没有已确认的镜头可以合成")
+# Output size = the first clip's own size (portrait stays portrait, nothing is downscaled).
+W, H = (int(x) - int(x) % 2 for x in subprocess.run(
+    ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x",
+     str(proj / state[shots[0]["id"]]["clip"])], capture_output=True, text=True).stdout.strip().split("x")[:2])
 inputs, chains = [], []
 for i, s in enumerate(shots):
     clip = proj / state[s["id"]]["clip"]
@@ -35,10 +41,10 @@ for i, s in enumerate(shots):
     trim_tail = nxt and nxt.get("link") == "extend" and not state[nxt["id"]].get("head_trimmed")
     end = dur - ov if trim_tail else dur
     inputs += ["-i", str(clip)]
-    chains.append(f"[{i}:v:0]trim=0:{end:.3f},setpts=PTS-STARTPTS,{crop}scale=1280:720:force_original_aspect_ratio=increase,"
-                  f"crop=1280:720,fps=30,setsar=1[v{i}];[{i}:a:0]atrim=0:{end:.3f},asetpts=PTS-STARTPTS,"
+    chains.append(f"[{i}:v:0]trim=0:{end:.3f},setpts=PTS-STARTPTS,{crop}scale={W}:{H}:force_original_aspect_ratio=increase,"
+                  f"crop={W}:{H},fps=30,setsar=1[v{i}];[{i}:a:0]atrim=0:{end:.3f},asetpts=PTS-STARTPTS,"
                   f"aresample=48000,aformat=channel_layouts=stereo[a{i}];")
 graph = "".join(chains) + "".join(f"[v{i}][a{i}]" for i in range(len(shots))) + f"concat=n={len(shots)}:v=1:a=1[v][a]"
 subprocess.run(["ffmpeg", "-v", "error", "-y", *inputs, "-filter_complex", graph, "-map", "[v]", "-map", "[a]",
                 "-c:v", "libx264", "-crf", "14", "-preset", "slow", "-c:a", "aac", "-b:a", "256k", a.out], check=True)
-print(json.dumps({"out": a.out, "shots": [s["id"] for s in shots]}))
+print(json.dumps({"out": a.out, "size": f"{W}x{H}", "shots": [s["id"] for s in shots]}))
