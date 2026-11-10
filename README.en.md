@@ -122,5 +122,24 @@ projects/             your projects (not shared with the code)
 - **`lastframe` is untested.** The last frame → first frame mode is wired into the pipeline but has not yet been tested with real generations. Only video extension has been tested end to end.
 - **Costs.** Generation is billed to your own Token Station and Alibaba Cloud accounts. Failed QA does not re-roll automatically by default; you decide.
 
+## 9. How the workflow differs from OpenMontage
+[OpenMontage](https://github.com/calesthio/OpenMontage) is a general-purpose agentic video production system. This comparison is based on its `cinematic` and `character-animation` pipeline definitions. I read those definition files but did not run its full pipeline end to end.
+
+```
+OpenMontage:  research → proposal (optional sample) → script → scene plan → assets (all generated in one stage) → edit → compose/render → publish
+This project: source → anchor plan → anchor images → voices → shot board → [per shot: plan → generate + QA → confirm end state] × N → assemble
+```
+
+| | OpenMontage | This project |
+|---|---|---|
+| Generation | After the scene plan is approved, all shots are generated in one batch. Shots are independent and joined on the edit timeline. | Shots run one at a time. Each shot starts only after the previous one is approved, continues from where it ended, and its "current state" describes what the previous shot **actually** shows. |
+| Human approval | Approval is per stage. All assets are approved in one batch. Edit and compose do not ask for approval by default. | Every shot is reviewed twice: before generation (prompt and estimated cost; no spend without approval) and after (video, QA, end state). All 8 gates require a human. |
+| Pre-production | Research and a proposal come first, then a newly written script. | The source text is the script, covered word for word; shot length is estimated at 4.5 Chinese characters per second. |
+| Consistency | The character-animation pipeline has character design and rig planning stages. | Separately approved anchors (characters, scenes, props, voices). Each shot attaches only the anchors visible in it. |
+| Post-production | Edit timeline plus Remotion render, with music, narration, captions, transitions, and publishing. | Plain assembly: keep the next shot whole and trim the previous shot's tail. The sound comes from the generated video. |
+| Re-rolls and budget | Up to 3 revisions per stage; budget in USD. | No automatic re-rolls by default; the human decides. Budget in billed seconds. |
+
+In short, OpenMontage covers more of pre-production and post-production polish. This project gives finer control over filming a story continuously. The two can work together: film a continuous cut here, then add music and captions with a tool like OpenMontage.
+
 ## License
 MIT
