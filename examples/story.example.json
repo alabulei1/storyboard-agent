@@ -124,5 +124,5 @@
    ]
   }
  ],
- "_comment": "示例：S5、S6 两条的完整写法。新项目需要从 S1 写起；S1 的 link 为 none。锚点 image/voice 路径相对于项目目录。"
+ "_comment": "示例：S5、S6 两条的完整写法。新项目用 tools/new_project.py 创建，从 S1 写起；link 取 none（独立）、extend（视频续写）或 lastframe（尾帧接首帧），S1 为 none。锚点 image/voice 路径相对于项目目录。"
 }

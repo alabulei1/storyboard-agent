@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
+CHAINED = ("extend", "lastframe")  # shots that start from the previous accepted shot
 sys.path.insert(0, str(TOOLS))
 from build_prompt import build  # noqa: E402
 import gate  # noqa: E402
@@ -135,7 +136,7 @@ def plan(proj, sid):
     shot = next(s for s in story["shots"] if s["id"] == sid)
     idx = [s["id"] for s in story["shots"]].index(sid)
     prev = story["shots"][idx - 1]["id"] if idx else None
-    if shot.get("link") == "extend":
+    if shot.get("link") in CHAINED:
         if not prev or state.get(prev, {}).get("status") != "accepted":
             sys.exit(f"{prev} 还没有确认通过")
         shot["start_state_actual"] = state[prev]["end_state"]
@@ -144,7 +145,8 @@ def plan(proj, sid):
     overlap = story.get("continuation_seconds", 4) if shot.get("link") == "extend" else 0
     (proj / f"prompts/{sid}_plan.txt").write_text(prompt)
     est = media["duration"] + overlap
-    summary = (f"{sid}：生成 {media['duration']} 秒（含承接 {overlap} 秒），预计计费约 {est} 秒；"
+    how = {"extend": f"续写上一条，含承接 {overlap} 秒", "lastframe": "上一条最后一帧作首帧"}.get(shot.get("link"), "独立镜头")
+    summary = (f"{sid}：生成 {media['duration']} 秒（{how}），预计计费约 {est} 秒；"
                f"参考图 {len(media['ref_images'])} 张、音色 {len(media['ref_audios'])} 段；提示词见 prompts/{sid}_plan.txt")
     gate.set_status(str(proj), f"plan:{sid}", "pending", summary=summary)
     print(prompt)
@@ -158,7 +160,7 @@ def produce(proj, sid, max_retries):
     shot = next(s for s in story["shots"] if s["id"] == sid)
     idx = [s["id"] for s in story["shots"]].index(sid)
     prev = story["shots"][idx - 1]["id"] if idx else None
-    if shot.get("link") == "extend":
+    if shot.get("link") in CHAINED:
         if not prev or state.get(prev, {}).get("status") != "accepted":
             sys.exit(f"{prev} not accepted yet; review it and run --accept first")
         shot["start_state_actual"] = state[prev]["end_state"]
@@ -171,6 +173,11 @@ def produce(proj, sid, max_retries):
         tail = proj / f"tails/{sid}_from_{prev}_tail.mp4"
         sh(sys.executable, "-I", str(TOOLS / "lt.py"), "tail", "--in", str(proj / state[prev]["clip"]),
            "--sec", str(story.get("continuation_seconds", 4)), "--out", str(tail), "--clean-subs")
+    first = None
+    if shot.get("link") == "lastframe":
+        first = proj / f"tails/{sid}_from_{prev}_lastframe.png"
+        sh(sys.executable, "-I", str(TOOLS / "lt.py"), "lastframe", "--in", str(proj / state[prev]["clip"]),
+           "--out", str(first))
 
     for take in range(1, max_retries + 2):
         prompt, media = build(proj, sid)
@@ -182,9 +189,11 @@ def produce(proj, sid, max_retries):
         pf.write_text(prompt)
         out = proj / f"clips/{sid}_take{take}.mp4"
         args = [sys.executable, "-I", str(TOOLS / "lt.py"), "wan", "--out", str(out), "--prompt-file", str(pf),
-                "--duration", str(media["duration"]), "--aspect", "adaptive" if tail else story.get("ratio", "16:9")]
+                "--duration", str(media["duration"]), "--aspect", "adaptive" if (tail or first) else story.get("ratio", "16:9")]
         if tail:
             args += ["--ref-video", str(tail)]
+        if first:
+            args += ["--first-frame", str(first)]
         if media["ref_images"]:
             args += ["--ref-image", *media["ref_images"]]
         if media["ref_audios"]:

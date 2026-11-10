@@ -2,6 +2,8 @@
 
   build_prompt.py <project_dir> <shot_id>   -> prints the prompt and the media lists as JSON
 
+link: none（独立镜头）| extend（视频续写，上一条结尾作为视频1）| lastframe（上一条最后一帧作首帧，
+不能再带参考图和音色，角色用名字称呼）。
 Formula: 总体描述 → 参考素材（视频/图/音频 编号按上传顺序、分类计数）→ 当前状态 → 分镜（起止秒）
 → 台词（图N说："…"，逐句、第一句一字不差）→ 音色参考 + 口型同步 → 音效 → 风格 → 负向清单
 """
@@ -15,26 +17,28 @@ def build(proj: Path, sid: str):
     shot = next(s for s in story["shots"] if s["id"] == sid)
     anchors = story["anchors"]
     overlap = story.get("continuation_seconds", 4) if shot.get("link") == "extend" else 0
+    lastframe = shot.get("link") == "lastframe"      # Wan: first_frame cannot be mixed with reference_*
 
-    images = list(shot["refs"])                      # anchor keys, upload order
+    images = [] if lastframe else list(shot["refs"])  # anchor keys, upload order
     img_no = {k: i + 1 for i, k in enumerate(images)}
     speakers = []
     for line in shot.get("dialogue", []):
         if line["who"] not in speakers:
             speakers.append(line["who"])
-    voices = [anchors[w]["voice"] for w in speakers if anchors[w].get("voice")]
-    voice_no = {w: i + 1 for i, w in enumerate(w for w in speakers if anchors[w].get("voice"))}
+    voice_no = {} if lastframe else {w: i + 1 for i, w in enumerate(w for w in speakers if anchors[w].get("voice"))}
 
     def who(key):  # how a character is referred to in the prompt
         return f"图{img_no[key]}" if key in img_no else anchors[key]["name"]
 
     lines = []
     head = shot["summary"]
-    lines.append(("将视频1向后延长，续写：" if overlap else "") + head)
+    lines.append(("将视频1向后延长，续写：" if overlap else "从首帧画面直接开始，接着拍：" if lastframe else "") + head)
 
     refs = []
     if overlap:
         refs.append("视频1 是上一段的结尾，从视频1的最后画面无缝接着拍")
+    if lastframe:
+        refs.append("首帧是上一段的最后一帧，人物长相、服装、场景、光线与首帧保持一致")
     for k in images:
         refs.append(f"图{img_no[k]} 是{anchors[k]['name']}（{anchors[k]['use']}）")
     for w, n in voice_no.items():
@@ -59,7 +63,7 @@ def build(proj: Path, sid: str):
         t0, t1 = t, min(t + sc["seconds"], total)
         t = t1
         desc = sc["desc"]
-        for k in images:
+        for k in anchors:
             desc = desc.replace("{" + k + "}", who(k))
         lines.append(f"分镜{n}（{t0:g}-{t1:g}秒）：{desc}")
 

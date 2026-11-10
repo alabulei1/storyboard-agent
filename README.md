@@ -1,6 +1,6 @@
 # storyboard-agent：小说 → AI 短剧的工作流（Claude 当大脑）
 
-把一段小说改编成 AI 短剧的工作流：锚点体系（角色 / 场景 / 道具 / 音色 / 续镜）、按语速规划分镜、视频续写串行生成、质检、账本，以及**每一步都要人确认的关卡**。
+把一段小说改编成 AI 短剧的工作流：锚点体系（角色 / 场景 / 道具 / 音色 / 续镜）、按语速规划分镜、逐条串行生成（视频续写或尾帧接首帧）、质检、账本，以及**每一步都要人确认的关卡**。
 
 - **大脑**：Claude Code（读 `SPEC.md`，规划、写提示词、审片）
 - **执行**：`tools/` 下的脚本（调用模型、剪辑、质检、合成）
@@ -10,34 +10,74 @@
 需要：macOS（推荐）或 Linux、Python 3.10+、ffmpeg、whisper.cpp（`whisper-cli`）及 `ggml-large-v3-turbo` 模型、[Claude Code](https://claude.com/claude-code)。
 
 ```bash
-./setup.sh          # 检查依赖；macOS 上编译字幕检测工具 tools/ocr
+git clone https://github.com/alabulei1/storyboard-agent
+cd storyboard-agent
+./setup.sh             # 检查依赖；macOS 上编译字幕检测工具 tools/ocr
 cp .env.example .env   # 然后填入你自己的 key
 ```
-- macOS：`brew install ffmpeg whisper-cpp`，再下载 whisper 模型（见 setup.sh 的提示）。
+- macOS：`brew install ffmpeg whisper-cpp`，再从 https://huggingface.co/ggerganov/whisper.cpp 下载 `ggml-large-v3-turbo.bin`（放在家目录下任意位置，或在 `.env` 里写 `WHISPER_MODEL=<路径>`）。
 - Linux：字幕检测改用 tesseract，需要安装中文语言包（`tesseract-ocr-chi-sim`）。
 
 ## 2. 准备 key（填进 `.env`，不要提交、不要发给别人）
 | 变量 | 用途 | 从哪里来 |
 |---|---|---|
 | `TOKEN_STATION_API_KEY` | gpt-image-2 锚点图、音色样音 | Token Station（或改 `TOKEN_STATION_BASE_URL` 指向其他 OpenAI 兼容网关） |
-| `WAN_API_KEY`、`WAN_BASE_URL` | Wan 3.0 视频生成 | 阿里云百炼（Model Studio）工作空间的 API Key 和地址 |
+| `WAN_API_KEY` | Wan 3.0 视频生成 | 阿里云百炼（Model Studio）→ API Key |
+| `WAN_BASE_URL` | 同上 | 百炼工作空间的地址，形如 `https://<工作空间>.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`（直接粘贴控制台给的地址即可，脚本会自己去掉 `/compatible-mode/v1`） |
 | `WHISPER_MODEL` | 台词核对（可选，不填会自动在家目录里找） | whisper.cpp 的 ggml 模型路径 |
 
-## 3. 使用
-在本目录打开 Claude Code，然后说，例如：
+## 3. 新建一个项目
+1. 在本目录打开 Claude Code（终端里运行 `claude`）。
+2. 把小说交给它：可以直接贴在对话里，也可以先存成文本文件告诉它路径。
+3. 一句话说清楚这几件事：
+   - **项目名**（字母、数字、中文、`-` 或 `_`，例如 `xiubiaopu`）
+   - **目标时长**（例如约 60 秒；不说就按原文逐字覆盖）
+   - **横屏还是竖屏**（16:9 或 9:16）
+   - **预算**（最多花多少秒的视频计费，默认 200 秒，见第 6 节）
 
-> 按 SPEC.md，把 examples/novel.md 做成约 60 秒的横屏短剧，项目名 demo。
+   例如：
+   > 按 SPEC.md，把 examples/novel.md 做成约 60 秒的横屏短剧，项目名 demo，预算 200 秒。
 
-Claude 会新建 `projects/demo/`，然后按 8 道关卡逐步进行，**每一关都会停下来请你确认**：
+Claude 会运行 `tools/new_project.py` 建好 `projects/demo/`，然后按 8 道关卡逐步进行，**每一关都会停下来请你确认**：
 1. 定稿（时长、画幅、模型）→ 2. 锚点计划 → 3. 锚点图验收 → 4. 音色验收 → 5. 分镜规划
 → 6. 每条生成前（提示词 + 预计费用，批准才花钱）→ 7. 每条生成后（视频 + 质检 + 结束状态）→ 8. 合成导出。
 
 你只需要回复"通过"，或者"不通过 + 修改意见"。所有确认都记在 `projects/<名>/workflow.json`，所有花费记在 `ledger.json`。
 
-## 4. 目录
+**成片在哪里**：`projects/<名>/exports/`。每条单独的片段在 `clips/`，质检图在 `qa/`。
+
+## 4. 接着做 / 同时做多个项目
+- **接着做**：关掉 Claude Code、第二天再来都没关系，进度都存在项目文件夹里。打开 Claude Code 说"继续 demo，看看停在哪一关"即可。
+- **同时做两个项目**：每个项目的确认记录、片段、预算、账本都是分开的，互不覆盖。
+  - 想真正并行：开两个终端窗口，各自运行 `claude`，一个说"做项目 demo1"，另一个说"做项目 demo2"。
+  - 也可以在一个窗口里轮流做："切到 demo2"。
+  - 给指令时带上项目名（例如"demo1 的 S3 通过"），避免批到另一个项目上。
+  - 两个项目共用 `.env` 里的同一组 key，费用从同一个账户扣；预算按项目各算各的。云端可能限制同时进行的视频任务数，遇到限流就错开提交。
+
+## 5. 两种续接方式
+每条分镜可以选择怎么接上一条（`story.json` 里每条的 `link`）：
+
+| | 视频续写（`extend`，默认） | 尾帧接首帧（`lastframe`） |
+|---|---|---|
+| 做法 | 把上一条结尾 4 秒交给模型，让它往后接着拍 | 截上一条最后一帧，作为新一条的第一帧 |
+| 角色参考图、音色 | 可以带 | 不能带（Wan 的首帧模式不能同时用参考素材） |
+| 效果 | 动作、镜头、声音都连贯；人物最稳定 | 画面接得上，动作可能停顿；人物长相和嗓音越往后越容易变 |
+| 费用 | 多付参考的那 4 秒 | 只付生成的秒数 |
+| 适合 | 同一场戏、有对白 | 动作延续、空镜、预算紧 |
+
+第一条和换场的条用 `none`（独立生成）。Claude 规划分镜时会提出建议，在"分镜规划"那一关由你确认。
+
+## 6. 费用参考
+- 只有视频生成按秒计费；锚点图和音色样音按次计费，量很少。
+- 视频续写时，承接部分会多算钱：例如要 9 秒新内容，模型输出 13 秒（开头 4 秒是重拍的承接画面，合成时剪掉），再加上 4 秒参考视频输入，实际计费约 17 秒（示例 S6 实测 16.97 秒）。
+- 实测：示例《修表铺》做出 72 秒成片，Wan 共计费约 215 秒，其中包括重抽和调试。
+- 每条生成前都会显示预计计费秒数，批准才花钱；超过项目预算会自动停下。单价以你的阿里云账户为准。
+
+## 7. 目录
 ```
 SPEC.md               编排规范（规则、提示词模板、关卡、实测经验）——Claude 的工作手册
 CLAUDE.md             给 Claude Code 的启动说明
+tools/new_project.py  新建项目（标准目录、story.json 草稿、第一道关卡）
 tools/lt.py           底层：生图、生视频（Wan / MiniMax H3 / Grok）、剪尾段、截尾帧、合成
 tools/build_prompt.py 按 story.json 自动拼 Wan 官方格式提示词
 tools/run_shot.py     单条：--plan（计划，待批）→ 生成 → 质检 → 待审 → --accept（写入结束状态）
@@ -47,8 +87,12 @@ examples/             示例小说与 story.json
 projects/             你的项目（不随代码分享）
 ```
 
-## 5. 已知限制
+## 8. 已知限制
 - Wan 3.0 在大段对白的说话近景里会随机烧录乱码字幕，提示词只能降低概率；质检会拦下，可选择重抽或合成时 `--crop-subs`（裁掉底部 17%）。
 - 参考图里的状态（例如头盔拿在手上、戴着放大镜）会被带进每个镜头；参考图只放长相与服装。
 - 视频续写会累积细节偏差，近景多的角色建议额外做一张脸部特写参考图。
+- "尾帧接首帧"模式已接入流程，但还没有用真实生成测试过；目前实测过的是视频续写。
 - 生成费用由你自己的 Token Station / 阿里云账户承担；质检不过默认不自动重抽，由你决定。
+
+## License
+MIT
