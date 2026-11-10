@@ -82,13 +82,14 @@ Claude 会运行 `tools/new_project.py` 建好 `projects/demo/`，然后按 8 �
 SPEC.md               编排规范（规则、提示词模板、关卡、实测经验）——Claude 的工作手册
 CLAUDE.md             给 Claude Code 的启动说明
 tools/new_project.py  新建项目（标准目录、story.json 草稿、第一道关卡）
-tools/lt.py           底层：生图、生视频（Wan / MiniMax H3 / Grok）、剪尾段、截尾帧、合成
+tools/lt.py           底层：生图、音色样音、生视频（Wan / MiniMax H3 / Grok）、剪尾段、截尾帧、合成
+tools/check_story.py  检查 story.json（字段、秒数、锚点引用、模型上限），打印分镜总表；关卡和生成前自动执行
 tools/build_prompt.py 按 story.json 自动拼 Wan 官方格式提示词
 tools/run_shot.py     单条：--plan（计划，待批）→ 生成 → 质检 → 待审 → --accept（写入结束状态）
 tools/gate.py         人工确认关卡
 tools/assemble.py     合成（成片尺寸跟随素材；--crop-subs 可裁掉底部烧录字幕）
 tests/                不花钱的自检：python3 tests/test_workflow.py（用假的视频接口跑完整流程）
-examples/             示例小说与 story.json
+examples/             示例小说与 story.json（《修表铺》前半段 S1–S6 的完整写法）
 projects/             你的项目（不随代码分享）
 ```
 

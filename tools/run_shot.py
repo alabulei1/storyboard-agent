@@ -34,6 +34,7 @@ SUBMITTED = "已提交"               # ledger status: task sent to Wan, result 
 RESUMABLE = 75                     # lt.py wan exit code: submitted (billed) but not fetched
 sys.path.insert(0, str(TOOLS))
 from build_prompt import build  # noqa: E402
+import check_story  # noqa: E402
 import gate  # noqa: E402
 
 def sh(*args, check=True):
@@ -168,6 +169,13 @@ def qa(video, shot, story, proj):
             "problems": problems, "pass": not problems}
 
 
+def check(proj):
+    """story.json must be well-formed before a prompt is built from it."""
+    errors, _ = check_story.check(proj)
+    if errors:
+        sys.exit("story.json 有问题，改好并重新请用户确认分镜（board）：\n" + "\n".join("- " + e for e in errors))
+
+
 def load_shot(proj, sid):
     """story, state, the shot and the previous shot id; a chained shot gets the previous shot's ACTUAL end state."""
     story = json.loads((proj / "story.json").read_text())
@@ -216,6 +224,7 @@ def estimate(story, shot, media):
 def plan(proj, sid):
     """Show the human exactly what will be generated and what it costs, then wait for approval."""
     gate.require(str(proj), "board")
+    check(proj)
     story, state, shot, prev = load_shot(proj, sid)
     if state.get(sid, {}).get("pending_task"):
         sys.exit(f"{sid} 有一个已提交但还没取回的任务：先运行 run_shot.py <项目> {sid} 取回，不要重新计划")
@@ -250,6 +259,8 @@ def generate(args, on_task):
 
 
 def produce(proj, sid, max_retries):
+    if not jload(proj / "state.json", {}).get(sid, {}).get("pending_task"):  # a submitted task is fetched no matter what
+        check(proj)
     story, state, shot, prev = load_shot(proj, sid)
     ledger_p, state_p = proj / "ledger.json", proj / "state.json"
     ledger = jload(ledger_p, [])

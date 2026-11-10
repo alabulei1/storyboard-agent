@@ -1,6 +1,8 @@
 """Short-drama workflow tools (Claude is the planner; this file only executes).
 
   lt.py image     --out a.png --prompt-file p.txt [--ref x.png ...] [--size 1536x1024]
+  lt.py voice     --out v.mp3 --text "<what the sample says>" --instructions "<what the voice sounds like>"
+                  [--seconds 4]                             (voice sample; the untrimmed audio is kept as v_full.mp3)
   lt.py video     --out s1.mp4 --prompt-file p.txt --model h3|grok15
                   [--first-frame f.jpg] [--ref-video tail.mp4] [--ref-image a.png ...]
                   [--duration 10] [--resolution 720p]
@@ -30,6 +32,7 @@ from pathlib import Path
 
 BASE = "https://bec.bytefuture.ai"  # Token Station gateway (override with TOKEN_STATION_BASE_URL)
 MODELS = {"h3": "minimax/MiniMax-H3", "grok15": "xai/grok-imagine-video-1.5"}
+VOICE_MODEL = "xiaomi/mimo-v2.5-tts-voicedesign"  # designs a voice from a text description
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -62,7 +65,7 @@ def data_uri(path):
     return f"data:{mime};base64," + base64.b64encode(Path(path).read_bytes()).decode()
 
 
-def request(path, body=None, files=None, timeout=900):
+def request(path, body=None, files=None, timeout=900, raw=False):
     headers = {"Authorization": f"Bearer {key()}"}
     if files is not None:
         boundary = uuid.uuid4().hex
@@ -82,7 +85,7 @@ def request(path, body=None, files=None, timeout=900):
     req = urllib.request.Request(env().get("TOKEN_STATION_BASE_URL", BASE).rstrip("/") + path, data, headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.load(r)
+            return r.read() if raw else json.load(r)
     except urllib.error.HTTPError as e:
         sys.exit(f"HTTP {e.code}: {e.read().decode()[:600]}")
 
@@ -105,12 +108,17 @@ def project_of(path):
     return ROOT / "projects" / rel.parts[0] if len(rel.parts) > 1 else None
 
 
-def cmd_image(a):
-    proj = project_of(a.out)
-    if proj and (proj / "workflow.json").exists():  # anchor images cost money: the anchor plan must be approved first
+def require_gate(out, name):
+    """Files written into a project need that project's gate; files elsewhere (experiments) do not."""
+    proj = project_of(out)
+    if proj and (proj / "workflow.json").exists():
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import gate
-        gate.require(str(proj), "anchors_plan")
+        gate.require(str(proj), name)
+
+
+def cmd_image(a):
+    require_gate(a.out, "anchors_plan")  # anchor images cost money: the anchor plan must be approved first
     prompt = Path(a.prompt_file).read_text()
     t = time.time()
     if a.ref:
@@ -121,6 +129,36 @@ def cmd_image(a):
         res = request("/v1/images/generations", {"model": "openai/gpt-image-2", "prompt": prompt, "n": 1, "size": a.size}, timeout=300)
     save_item(res["data"][0], a.out)
     print(json.dumps({"out": a.out, "seconds": round(time.time() - t), "usage": res.get("usage", {}).get("output_tokens")}))
+
+
+def audio_seconds(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+                         capture_output=True, text=True).stdout.strip()
+    try:
+        return float(out)
+    except ValueError:
+        return None
+
+
+def cmd_voice(a):
+    require_gate(a.out, "anchors_review")  # voices are designed for characters whose images are approved
+    out = Path(a.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    full = out.with_name(out.stem + "_full" + out.suffix)
+    t = time.time()
+    audio = request("/v1/audio/speech", {"model": a.model, "input": a.text, "voice": a.voice, "instructions": a.instructions},
+                    timeout=300, raw=True)
+    full.write_bytes(audio)
+    total = audio_seconds(full)
+    if not total:
+        full.unlink()
+        sys.exit("the gateway did not return audio: " + audio[:300].decode(errors="replace"))
+    # SPEC 6: keep samples at about 4 s (the words of a sample can leak into the film's dialogue).
+    cut = a.seconds if 0 < a.seconds < total else total
+    fade = ["-t", f"{cut:g}", "-af", f"afade=t=out:st={cut - 0.3:g}:d=0.3"] if cut < total else []
+    ff("-i", str(full), *fade, "-ac", "1", "-ar", "44100", str(out))
+    print(json.dumps({"out": str(out), "full": str(full), "model": a.model, "seconds": round(time.time() - t),
+                      "duration": round(audio_seconds(out), 2), "full_duration": round(total, 2)}))
 
 
 def cmd_video(a):
@@ -296,6 +334,12 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("image"); s.add_argument("--out", required=True); s.add_argument("--prompt-file", required=True)
     s.add_argument("--ref", nargs="*"); s.add_argument("--size", default="1536x1024"); s.set_defaults(fn=cmd_image)
+    s = sub.add_parser("voice"); s.add_argument("--out", required=True)
+    s.add_argument("--text", required=True, help="a neutral sentence unrelated to the story, about 4 s when spoken")
+    s.add_argument("--instructions", required=True, help="the voice: age, gender, tone, pace, accent")
+    s.add_argument("--seconds", type=float, default=4, help="trim the sample to this length; 0 keeps it whole")
+    s.add_argument("--model", default=VOICE_MODEL); s.add_argument("--voice", default="Ethan", help="base voice name the gateway requires")
+    s.set_defaults(fn=cmd_voice)
     s = sub.add_parser("video"); s.add_argument("--out", required=True); s.add_argument("--prompt-file", required=True)
     s.add_argument("--model", choices=list(MODELS), required=True); s.add_argument("--first-frame")
     s.add_argument("--ref-video", nargs="*"); s.add_argument("--ref-image", nargs="*")

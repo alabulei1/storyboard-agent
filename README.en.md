@@ -108,13 +108,14 @@ Use `none` for the first shot and for scene changes; those shots are generated i
 SPEC.md               operating manual: rules, prompt template, gates, lessons learned (Claude's handbook)
 CLAUDE.md             startup instructions for Claude Code
 tools/new_project.py  create a project (standard folders, story.json draft, first gate)
-tools/lt.py           low level: images, video (Wan / MiniMax H3 / Grok), tail clips, last frames, concat
+tools/lt.py           low level: images, voice samples, video (Wan / MiniMax H3 / Grok), tail clips, last frames, concat
+tools/check_story.py  checks story.json (fields, seconds, anchor references, model limits) and prints the shot table; runs automatically at the gates and before generation
 tools/build_prompt.py builds the Wan prompt (official formula) from story.json
 tools/run_shot.py     per shot: --plan (await approval) → generate → QA → await review → --accept (record end state)
 tools/gate.py         human approval gates
 tools/assemble.py     final assembly (output size follows the footage; --crop-subs crops burned-in subtitles)
 tests/                free self-check: python3 tests/test_workflow.py (full flow against a fake video API)
-examples/             example story and story.json
+examples/             example story and story.json (shots S1–S6 of 《修表铺》, written out in full)
 projects/             your projects (not shared with the code)
 ```
 

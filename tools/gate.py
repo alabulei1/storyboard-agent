@@ -10,6 +10,8 @@ Rules enforced here:
 - Order: a gate can only be requested or approved after every earlier gate in ORDER is approved;
   plan:<shot>, review:<shot> and assembly need all of ORDER. If an earlier gate is rejected or
   re-requested later, everything after it stops counting as approved until it is approved again.
+- story.json must pass check_story.py for its stage before anchors_plan, anchors_review,
+  voices_review or board can be requested or approved.
 - Only a requested (pending) gate can be approved. A plan:<shot> approval covers one run of
   run_shot.py: it becomes "used" once a paid task is submitted, so a re-roll needs --plan and a new approval.
 Approvals are only recorded after the human confirms in chat; the brain never self-approves.
@@ -21,6 +23,7 @@ import time
 from pathlib import Path
 
 ORDER = ["source", "anchors_plan", "anchors_review", "voices_review", "board"]
+STORY_CHECKED = ORDER[1:]  # gates where the human is shown story.json content: it must be well-formed first
 LABEL = {"pending": "待确认", "approved": "已通过", "rejected": "未通过", "used": "已用掉", None: "未请求"}
 
 
@@ -81,6 +84,12 @@ def set_status(proj, gate, status_, note="", summary=""):
         before = [g for g in prereqs(gate) if status(proj, g, wf) != "approved"]
         if before:
             sys.exit(f"{gate} 之前的关卡还没通过：" + "、".join(before))
+    if status_ in ("pending", "approved") and gate in STORY_CHECKED:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import check_story
+        errors, _ = check_story.check(Path(proj).resolve(), gate)
+        if errors:
+            sys.exit(f"story.json 还有问题，改好再请求 {gate}：\n" + "\n".join("- " + e for e in errors))
     if status_ == "approved" and status(proj, gate, wf) != "pending":
         now = status(proj, gate, wf)
         hint = "这次批准已经用掉，重抽要先重新 run_shot.py --plan 再请用户确认" if now == "used" else "先请求确认（gate.py request 或对应工具），再请用户确认"
