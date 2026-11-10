@@ -1,0 +1,128 @@
+{
+ "title": "修表铺（示例：前半段）",
+ "model": "wan3.0-video",
+ "ratio": "16:9",
+ "continuation_seconds": 4,
+ "budget_billed_seconds": 200,
+ "style": "写实电影质感，梅雨夜的冷青色调与修表铺台灯的暖黄光形成对比，画面细腻，轻微胶片颗粒，浅景深；",
+ "sound": "窗外持续的雨声，雨点打在铁皮雨棚上，墙上挂钟的滴答声，没有背景音乐。",
+ "negative": [
+  "不要字幕",
+  "不要水印",
+  "不要复杂文字",
+  "不要品牌标志"
+ ],
+ "anchors": {
+  "chen": {
+   "name": "老修表匠陈守义",
+   "use": "外貌与服装，不采用图片背景",
+   "image": "anchors/char_chen.png",
+   "voice": "anchors/voice/voice_old_v2.mp3",
+   "voice_text": "那年春天，河边的柳树刚发芽，街口新开了一家面馆。"
+  },
+  "rider": {
+   "name": "年轻外卖骑手",
+   "use": "外貌、凌乱短黑发、蓝色带银色反光条的冲锋衣，不采用图片背景",
+   "image": "anchors/char_rider_nohelmet.png",
+   "voice": "anchors/voice/voice_young_v2.mp3",
+   "voice_text": "周末我想去图书馆借几本书，再顺路买点水果回家。"
+  },
+  "atang": {
+   "name": "孙女阿棠",
+   "use": "外貌与服装，不采用图片背景",
+   "image": "anchors/char_atang.png"
+  },
+  "shop": {
+   "name": "修表铺内的空间布局与光线",
+   "use": "不采用图中无人物这一状态",
+   "image": "anchors/scene_shop.png"
+  },
+  "alley": {
+   "name": "青石巷雨夜",
+   "use": "巷子的样子",
+   "image": "anchors/scene_alley.png"
+  },
+  "watch": {
+   "name": "守拙怀表",
+   "use": "外观与表背刻字「守拙」",
+   "image": "anchors/prop_watch.png"
+  }
+ },
+ "shots": [
+  {
+   "id": "S5",
+   "link": "extend",
+   "duration": 11,
+   "summary": "年轻的外卖骑手接着讲父亲的过去，老修表匠一动不动地听着。",
+   "refs": [
+    "chen",
+    "rider",
+    "shop"
+   ],
+   "scenes": [
+    {
+     "seconds": 7,
+     "desc": "{rider}站在工作台旁边，垂着眼睛接着讲，骑手近景，台灯暖光照在他半边脸上。"
+    },
+    {
+     "seconds": 4,
+     "desc": "切到{chen}倾听的静止面孔，老人一动不动，只有眼皮低垂，双眼直接可见，没有戴放大镜或眼镜（老人近景）。"
+    }
+   ],
+   "dialogue": [
+    {
+     "who": "rider",
+     "verb": "低声说",
+     "text": "我问过我妈，她说我爸年轻时在南边学过手艺，后来就再没提过。"
+    }
+   ],
+   "negative": [
+    "老人不戴眼镜也不戴放大镜",
+    "骑手不戴头盔"
+   ]
+  },
+  {
+   "id": "S6",
+   "link": "extend",
+   "duration": 9,
+   "summary": "老修表匠问出名字，然后陷入长久的沉默，孙女第一次看见爷爷这个样子。",
+   "refs": [
+    "chen",
+    "rider",
+    "atang",
+    "shop"
+   ],
+   "scenes": [
+    {
+     "seconds": 3,
+     "desc": "{chen}抬眼看着{rider}问话，{rider}回答，正反打。"
+    },
+    {
+     "seconds": 3,
+     "desc": "{chen}低下头，很久没出声；插入墙上老挂钟秒针一格一格走的特写，门外雨点打在铁皮雨棚上。"
+    },
+    {
+     "seconds": 3,
+     "desc": "{atang}放下笔，盯着爷爷，神情不解（女孩中近景），画面停在她脸上。"
+    }
+   ],
+   "dialogue": [
+    {
+     "who": "chen",
+     "verb": "问",
+     "text": "你爸叫什么？"
+    },
+    {
+     "who": "rider",
+     "verb": "回答",
+     "text": "顾长明。"
+    }
+   ],
+   "negative": [
+    "老人不戴眼镜也不戴放大镜",
+    "骑手不戴头盔"
+   ]
+  }
+ ],
+ "_comment": "示例：S5、S6 两条的完整写法。新项目需要从 S1 写起；S1 的 link 为 none。锚点 image/voice 路径相对于项目目录。"
+}
